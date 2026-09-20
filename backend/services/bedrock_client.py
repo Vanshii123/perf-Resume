@@ -2,9 +2,9 @@
 LLM client -- wraps Claude (via Anthropic API) for structured JD extraction.
 
 Fallback chain:
-  1. Claude returns valid JSON  ->  normalise + regex override.
-  2. Claude returns JSON wrapped in markdown   ->  strip fences, retry parse.
-  3. JSON parse still fails                   ->  full regex fallback
+    1. Claude returns valid JSON -> normalise + regex override.
+    2. Claude returns JSON wrapped in markdown -> strip fences, retry parse.
+    3. JSON parse still fails -> full regex fallback
      (min_experience_years only; all other fields default to empty).
 """
 from __future__ import annotations
@@ -15,15 +15,21 @@ import os
 import re
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 # Constants
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _client
 
 _EXPERIENCE_RE = re.compile(
     r"(\d+)\s*\+?\s*(?:years|yrs|year)(?:\s+of)?(?:\s+experience)?",
@@ -51,24 +57,23 @@ _USER_TEMPLATE = (
     "Extract the structured information from the following job description:\n\n{jd_text}"
 )
 
-
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 # Shared LLM call helper (used by this file only; tailor.py/resume_parser.py
 # each have their own copy so the three files stay independent)
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 
 def _call_llm(system_prompt: str, user_content: str) -> str:
-    model = genai.GenerativeModel(
-        "gemini-flash-latest",
-        system_instruction=system_prompt,
+    client = _get_client()
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=user_content,
+        config={"system_instruction": system_prompt},
     )
-    response = model.generate_content(user_content)
     return response.text
 
-
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 # Public API
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 
 def extract_jd(jd_text: str) -> dict[str, Any]:
     try:
@@ -78,13 +83,11 @@ def extract_jd(jd_text: str) -> dict[str, Any]:
         logger.warning("Gemini unavailable: %s. Using regex fallback.", exc)
         return _regex_fallback(jd_text)
 
-
 extract_jd_with_claude = extract_jd
 
-
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 # Response parsing helpers
-# ---------------------------------------------------------------------------
+# [STRIPPED 75 bytes]
 
 def _parse_claude_response(raw: str, jd_text: str) -> dict[str, Any]:
     cleaned = _strip_markdown_fences(raw).strip()
@@ -99,12 +102,10 @@ def _parse_claude_response(raw: str, jd_text: str) -> dict[str, Any]:
         )
         return _regex_fallback(jd_text)
 
-
 def _strip_markdown_fences(text: str) -> str:
     fence_re = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
     match = fence_re.search(text.strip())
     return match.group(1) if match else text
-
 
 def _normalise(data: dict[str, Any], jd_text: str) -> dict[str, Any]:
     llm_years = int(data.get("min_experience_years") or 0)
@@ -118,9 +119,8 @@ def _normalise(data: dict[str, Any], jd_text: str) -> dict[str, Any]:
         "role_title": str(data.get("role_title") or ""),
     }
 
-
 def _regex_override_experience(jd_text: str, llm_years: int) -> int:
-    if llm_years != 0:
+    if llm_years!= 0:
         return llm_years
     match = _EXPERIENCE_RE.search(jd_text)
     if match:
@@ -128,7 +128,6 @@ def _regex_override_experience(jd_text: str, llm_years: int) -> int:
         logger.info("LLM returned min_experience_years=0; regex override → %d.", years)
         return years
     return 0
-
 
 def _regex_fallback(jd_text: str) -> dict[str, Any]:
     match = _EXPERIENCE_RE.search(jd_text)
