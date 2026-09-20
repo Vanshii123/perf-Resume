@@ -54,7 +54,7 @@ This was a deliberate design choice, not a limitation. A fit score that comes fr
 
 The LLM only enters the picture for the *optional* enhancement layer (bullet tailoring), and even there, its output is checked by the same deterministic logic before it reaches the user.
 
-## What we learned
+## What I learned
 
 Four LLM providers, four different authentication models. Over the course of this build we integrated (in order) AWS Bedrock, Anthropic's API, Google Gemini, and finally Groq — each time hitting a different flavor of auth failure (credential resolution, deprecated SDKs, OAuth-vs-API-key mismatches, model deprecation). Debugging this under time pressure taught us to build the LLM-calling layer as a swappable, provider-agnostic function rather than hardwiring one vendor's SDK into the business logic — so a provider swap becomes a single function replacement instead of a rewrite.
 
