@@ -11,11 +11,17 @@ import re
 from datetime import datetime
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _client
 
 _SKILLS_SYSTEM_PROMPT = """\
 You are a strict JSON extractor for resumes.
@@ -54,15 +60,14 @@ _DIRECT_YEARS_RE = re.compile(
     re.IGNORECASE,
 )
 
-
 def _call_llm(system_prompt: str, user_content: str) -> str:
-    model = genai.GenerativeModel(
-        "gemini-flash-latest",
-        system_instruction=system_prompt,
+    client = _get_client()
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=user_content,
+        config={"system_instruction": system_prompt},
     )
-    response = model.generate_content(user_content)
     return response.text
-
 
 def parse_resume(raw_text: str) -> dict[str, Any]:
     raw_sentences = _split_sentences(raw_text)
@@ -80,11 +85,9 @@ def parse_resume(raw_text: str) -> dict[str, Any]:
         "total_years": total_years,
     }
 
-
 def _split_sentences(text: str) -> list[str]:
     parts = _RE_SENTENCE.split(text)
     return [p.strip() for p in parts if len(p.strip()) >= 5]
-
 
 def _extract_total_years(text: str) -> float:
     current_year = datetime.now().year
@@ -119,7 +122,6 @@ def _extract_total_years(text: str) -> float:
             total = float(direct_years.group(1))
 
     return round(total, 2)
-
 
 def _extract_skills(raw_text: str) -> list[str]:
     try:
