@@ -70,7 +70,7 @@ export default function App() {
       formData.append("jd_text", jdText);
       formData.append("resume_file", resumeFile);
 
-      const res = await fetch("http://127.0.0.1:8000/analyze", {
+      const res = await fetch("http://15.252.146.6:8000/analyze", {
         method: "POST",
         body: formData,
       });
