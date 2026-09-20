@@ -1,27 +1,35 @@
 """
-Tailoring agent — generates JD-aligned resume bullets using Claude,
+Tailoring agent — generates JD-aligned resume bullets using Groq,
 constrained to ONLY rephrase facts already present in the original resume.
 """
 from __future__ import annotations
 import json, difflib, logging, os, re
 from typing import Any
-from google import genai
+from groq import Groq
 from backend.services.verify_bullet import verify_bullet
 logger = logging.getLogger(__name__)
 _client = None
 def _get_client():
     global _client
     if _client is None:
-        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        _client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 _SYSTEM_PROMPT = """You are a resume-tailoring assistant. Given a job description's required skills and a candidate's raw resume text, rewrite up to 5 resume bullet points that emphasize relevant experience. CRITICAL PARAPHRASING RULES: Never output a sentence that shares more than 5 consecutive words with the original resume text. Do not copy the original sentence structure. STRICT RULES: Only use facts, skills, numbers, and tools that literally appear in the original resume text. Do not invent, assume, or add anything. Return ONLY this JSON, no extra text: {"bullets": ["bullet 1", "bullet 2",...]}"""
 _USER_TEMPLATE = """Job description requires: {skills}\n\nOriginal resume text:\n{resume_text}\n\nGenerate tailored bullets using ONLY facts from the resume text above."""
 def _call_llm(system_prompt: str, user_content: str) -> str:
-    logger.info("Tailoring Gemini call: model=gemini-2.0-flash")
+    logger.info("Tailoring Groq call: model=llama-3.3-70b-versatile")
     client = _get_client()
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=user_content, config={"system_instruction": system_prompt})
-    logger.info("Tailoring raw response: %r", response.text)
-    return response.text
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        max_tokens=1024,
+    )
+    text = response.choices[0].message.content
+    logger.info("Tailoring raw response: %r", text)
+    return text
 def generate_tailored_bullets(jd_json, resume_text, max_bullets=5):
     skills = jd_json.get("must_have_skills", []) + jd_json.get("nice_have_skills", [])
     try:
