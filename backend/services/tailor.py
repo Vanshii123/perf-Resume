@@ -11,12 +11,18 @@ import os
 import re
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 from backend.services.verify_bullet import verify_bullet
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _client
 
 _SYSTEM_PROMPT = """You are a resume-tailoring assistant.
 Given a job description's required skills and a candidate's raw resume text,
@@ -46,7 +52,7 @@ STRICT RULES:
   introduce new factual content.
 
 Return ONLY this JSON, no extra text:
-{"bullets": ["bullet 1", "bullet 2", ...]}"""
+{"bullets": ["bullet 1", "bullet 2",...]}"""
 
 _USER_TEMPLATE = """Job description requires: {skills}
 
@@ -55,19 +61,18 @@ Original resume text:
 
 Generate tailored bullets using ONLY facts from the resume text above."""
 
-
 def _call_llm(system_prompt: str, user_content: str) -> str:
     logger.info("Tailoring Gemini call: model=gemini-flash-latest")
     logger.info("Tailoring system prompt: %s", system_prompt)
     logger.info("Tailoring user prompt: %s", user_content)
-    model = genai.GenerativeModel(
-        "gemini-flash-latest",
-        system_instruction=system_prompt,
+    client = _get_client()
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=user_content,
+        config={"system_instruction": system_prompt},
     )
-    response = model.generate_content(user_content)
     logger.info("Tailoring raw Gemini response: %r", response.text)
     return response.text
-
 
 def generate_tailored_bullets(
     jd_json: dict[str, Any],
@@ -97,7 +102,6 @@ def generate_tailored_bullets(
     except Exception as exc:
         logger.exception("Tailoring unavailable: %s", exc)
         return []
-
 
 def _validate_and_retry_bullets(
     bullets: list[str],
@@ -155,7 +159,6 @@ def _validate_and_retry_bullets(
     logger.info("Validated final bullets: %r", final)
     return final
 
-
 def _closest_sentence_ratio(bullet: str, resume_text: str) -> tuple[float, str | None]:
     normalized_bullet = " ".join(bullet.lower().split())
     best_ratio = 0.0
@@ -174,7 +177,6 @@ def _closest_sentence_ratio(bullet: str, resume_text: str) -> tuple[float, str |
             best_ratio = ratio
             best_sentence = sentence.strip()
     return best_ratio, best_sentence
-
 
 def _parse_response(raw: str) -> list[str]:
     logger.info("Parsing tailoring response raw text: %r", raw)
