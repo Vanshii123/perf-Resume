@@ -6,13 +6,13 @@ from __future__ import annotations
 import json, logging, os, re
 from datetime import datetime
 from typing import Any
-from groq import Groq
+from google import genai
 logger = logging.getLogger(__name__)
 _client = None
 def _get_client():
     global _client
     if _client is None:
-        _client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     return _client
 _SKILLS_SYSTEM_PROMPT = """You are a strict JSON extractor for resumes.\nGiven raw resume text, extract only a flat list of technical skills.\nReturn ONLY this JSON: {"skills": ["skill1", "skill2"]}\nRules: lowercase everything. No soft skills. No job titles. Never invent."""
 _SKILLS_USER_TEMPLATE = "Extract skills from this resume:\n\n{text}"
@@ -25,15 +25,8 @@ _KNOWN_SKILLS = ("python","fastapi","aws","azure","gcp","docker","kubernetes","j
 _DIRECT_YEARS_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*\+?\s*(?:years|yrs|year)\b", re.IGNORECASE)
 def _call_llm(system_prompt: str, user_content: str) -> str:
     client = _get_client()
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        max_tokens=1024,
-    )
-    return response.choices[0].message.content
+    response = client.models.generate_content(model="gemini-2.0-flash", contents=user_content, config={"system_instruction": system_prompt})
+    return response.text
 def parse_resume(raw_text: str) -> dict[str, Any]:
     raw_sentences = _split_sentences(raw_text)
     total_years = _extract_total_years(raw_text)
@@ -68,7 +61,7 @@ def _extract_skills(raw_text: str) -> list[str]:
     try:
         raw = _call_llm(_SKILLS_SYSTEM_PROMPT, _SKILLS_USER_TEMPLATE.format(text=raw_text[:8000]))
     except Exception as exc:
-        logger.warning("Groq skill extraction failed (%s). Using local fallback.", exc)
+        logger.warning("Gemini skill extraction failed (%s). Using local fallback.", exc)
         lowered = raw_text.lower()
         return [skill for skill in _KNOWN_SKILLS if skill in lowered]
     fence = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
