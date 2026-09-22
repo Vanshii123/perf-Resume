@@ -34,7 +34,7 @@ _STOPWORDS = frozenset({
 })
 
 # Regex patterns
-_RE_METRIC   = re.compile(r"\b\d+(?:\.\d+)?\b", re.IGNORECASE)
+_RE_METRIC   = re.compile(r"\b\d[\d,]*(?:\.\d+)?(?:ms|gb|tb|%|[kxm])?\b", re.IGNORECASE)
 _RE_PROPER   = re.compile(r"(?<!\.\s)(?<!\n)\b([A-Z][a-zA-Z0-9+#.]{1,})\b")
 _RE_TOKENS   = re.compile(r"[a-zA-Z0-9#+.]{2,}")
 
@@ -49,6 +49,7 @@ _GENERIC_NOUNS = {
     "systems", "platform", "platforms", "product", "products", "workflow",
     "workflows", "process", "processes", "solution", "solutions", "infrastructure",
     "application", "applications", "component", "components", "feature", "features",
+    "endpoint", "endpoints",
     "environment", "environments", "initiative", "initiatives", "work", "effort",
     "efforts", "business", "operations"
 }
@@ -107,11 +108,34 @@ def verify_bullet(
             "best_match_sentence": best_sentence,
         })
 
-    approved = len(unsupported) == 0
+    evidence_sentences = {
+        " ".join(match["best_match_sentence"].lower().split())
+        for match in claim_matches
+        if match["supported"] and match["best_match_sentence"]
+    }
+    evidence_issue = None
+    if not claims:
+        evidence_issue = "No verifiable resume evidence"
+        unsupported.append(evidence_issue)
+        claim_matches.append({
+            "claim": evidence_issue,
+            "supported": False,
+            "best_match_sentence": None,
+        })
+    elif len(evidence_sentences) > 1:
+        evidence_issue = "Claims span multiple resume statements"
+        unsupported.append(evidence_issue)
+        claim_matches.append({
+            "claim": evidence_issue,
+            "supported": False,
+            "best_match_sentence": None,
+        })
+
+    approved = len(unsupported) == 0 and evidence_issue is None
 
     logger.info(
-        "verify_bullet: approved=%s, supported=%d, unsupported=%d",
-        approved, len(supported), len(unsupported),
+        "verify_bullet: approved=%s, supported=%d, unsupported=%d, evidence_sources=%d",
+        approved, len(supported), len(unsupported), len(evidence_sentences),
     )
 
     return {
@@ -155,6 +179,16 @@ def _normalize_metric_match(text: str, match: re.Match[str]) -> str:
                 value += suffix
                 break
     return value
+
+
+def _metric_value(value: str) -> float:
+    normalized = value.lower().replace(",", "")
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(ms|gb|tb|%|k|x|m)?", normalized)
+    if not match:
+        return float("nan")
+    number = float(match.group(1))
+    multiplier = {"k": 1_000, "m": 1_000_000}.get(match.group(2), 1)
+    return number * multiplier
 
 
 def _looks_technical(token: str) -> bool:
@@ -207,10 +241,15 @@ def _extract_claims(bullet: str) -> list[str]:
         if word.lower() not in _STOPWORDS and len(word) > 1:
             _add(word)
 
-    tokens = [
-        t.lower() for t in _RE_TOKENS.findall(bullet)
-        if t.lower() not in _STOPWORDS and not _RE_METRIC.fullmatch(t)
-    ]
+    tokens = []
+    for token in _RE_TOKENS.findall(bullet):
+        normalized = token.lower().strip(".,;:!?\")'")
+        if (
+            normalized
+            and normalized not in _STOPWORDS
+            and not _RE_METRIC.fullmatch(normalized)
+        ):
+            tokens.append(normalized)
     for i in range(len(tokens) - 1):
         left, right = tokens[i], tokens[i + 1]
         if _is_generic_bigram(left, right) or not (
@@ -296,11 +335,12 @@ def _is_supported(claim: str, original: str) -> tuple[bool, str | None]:
     # skip fuzzy window matching entirely for these, since short digit
     # strings give unreliable fuzzy ratios against unrelated digit-heavy
     # text (phone numbers, dates, IDs).
-    is_numeric = bool(re.fullmatch(r"\d+(?:\.\d+)?(?:%|x|gb|tb|k|m|ms|s)?", claim_lower))
+    is_numeric = bool(re.fullmatch(r"\d[\d,]*(?:\.\d+)?(?:%|x|gb|tb|k|m|ms|s)?", claim_lower))
     if is_numeric:
-        if claim_lower in original_lower:
-            idx = original_lower.find(claim_lower)
-            return True, _sentence_containing(original, idx)
+        claim_value = _metric_value(claim_lower)
+        for match in _RE_METRIC.finditer(original_lower):
+            if _metric_value(match.group(0)) == claim_value:
+                return True, _sentence_containing(original, match.start())
         return False, None
 
     if claim_lower in original_lower:
