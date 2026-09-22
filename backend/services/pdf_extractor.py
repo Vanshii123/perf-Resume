@@ -89,3 +89,4 @@ def _extract_with_textract(pdf_bytes: bytes) -> str:  # pragma: no cover
         "Textract extraction is not yet implemented. "
         "See the docstring in services/pdf_extractor.py for integration steps."
     )
+
